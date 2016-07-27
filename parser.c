@@ -17,11 +17,19 @@
 #include <time.h>
 #include <pty.h>
 
-#include "configuration.h"
+#include "config.h"
 #include "rc4.h"
 #include "sha1.h"
 #include "utils.h"
 #include "list.h"
+
+#if PARSER_DBG
+#define parser_dbg(format, arg...) DBG_PRINT_FUNC(format, "PARSER_DBG", ##arg)
+#else
+#define  parser_dbg(x...)
+#endif
+
+#define parser_err(format, arg...) DBG_PRINT_FUNC(format, "PARSER_ERR", ##arg)
 
 typedef struct {
     uint8_t * data;
@@ -47,21 +55,21 @@ Session_List_t * create_session(Session_Data_t *sd, uint32_t ip, uint8_t *sha1su
     Log_List_t * new_data = NULL;
 
     if ((cur_sl = malloc(sizeof (Session_List_t))) == NULL) {
-	shellog_err("Memory allocation error\n");
+	parser_err("Memory allocation error\n");
 	exit(1);
     }
     memset(cur_sl, 0, sizeof (Session_List_t));
     INIT_LIST_HEAD(&(cur_sl->data.list));
 
     if ((new_data = malloc(sizeof (Log_List_t))) == NULL) {
-	shellog_err("Memory allocation error\n");
+	parser_err("Memory allocation error\n");
 	exit(1);
     }
     memset(new_data, 0, sizeof (Log_List_t));
     INIT_LIST_HEAD(&(new_data->list));
 
     if ((new_data->data = malloc(sd->len)) == NULL) {
-	shellog_err("Memory allocation error\n");
+	parser_err("Memory allocation error\n");
 	exit(1);
     }
 
@@ -99,14 +107,14 @@ static void add_session_data(Session_Data_t *sd, uint32_t ip) {
 		/* Found session, add new command data and return */
 
 		if ((new_data = malloc(sizeof (Log_List_t))) == NULL) {
-		    shellog_err("Memory allocation error\n");
+		    parser_err("Memory allocation error\n");
 		    exit(1);
 		}
 
 		memset(new_data, 0, sizeof (Log_List_t));
 
 		if ((new_data->data = malloc(sd->len)) == NULL) {
-		    shellog_err("Memory allocation error\n");
+		    parser_err("Memory allocation error\n");
 		    exit(1);
 		}
 
@@ -150,10 +158,10 @@ static int read_and_decrypt(int fd) {
     while (ret = read(fd, buffer, IP_SZ + LENGTH_SZ)) {
 	if (ret < IP_SZ + LENGTH_SZ) {
 	    if (ret < 0) {
-		shellog_err("Log file read failed: %d\n", errno);
+		parser_err("Log file read failed: %d\n", errno);
 		exit(1);
 	    } else {
-		shellog_err("Log file empty\n");
+		parser_err("Log file empty\n");
 		exit(0);
 	    }
 	}
@@ -165,10 +173,10 @@ static int read_and_decrypt(int fd) {
 	memcpy(&len, &buffer[buffer_read_index], LENGTH_SZ);
 	buffer_read_index += LENGTH_SZ;
 
-	shellog_dbg("Packet size: %d\n", len);
+	parser_dbg("Packet size: %d\n", len);
 
 	if (len < MIN_TRANSFER_PKT_SZ) {
-	    shellog_err("Invalid packet length %d, corrupted file.\n", len);
+	    parser_err("Invalid packet length %d, corrupted file.\n", len);
 	    exit(2);
 	}
 
@@ -176,10 +184,10 @@ static int read_and_decrypt(int fd) {
 	ret = read(fd, &buffer[buffer_write_index], len);
 	if (ret < len) {
 	    if (ret < 0) {
-		shellog_err("Log file read failed: %d\n", errno);
+		parser_err("Log file read failed: %d\n", errno);
 		exit(1);
 	    } else {
-		shellog_err("Log file empty\n");
+		parser_err("Log file empty\n");
 		exit(0);
 	    }
 	}
@@ -194,7 +202,7 @@ static int read_and_decrypt(int fd) {
 	sha1_finish(&sha1, sha1sum);
 
 	if (memcmp(sha1sum, &buffer[IP_SZ + LENGTH_SZ + len - SHA1_SZ], SHA1_SZ)) {
-	    shellog_err("SHA-1 checksum verification failed\n");
+	    parser_err("SHA-1 checksum verification failed\n");
 	    continue;
 	}
 
@@ -232,7 +240,7 @@ static int read_and_decrypt(int fd) {
 	add_session_data(sd, src_ip);
     }
 
-    shellog_dbg("All done\n");
+    parser_dbg("All done\n");
 
 }
 
@@ -246,7 +254,7 @@ int main(int argc, char *argv[]) {
     }
 
     if ((fd_log = open(argv[1], O_RDONLY)) < 0) {
-	shellog_err("Log file open failed: %d\n", errno);
+	parser_err("Log file open failed: %d\n", errno);
 	exit(1);
     }
 

@@ -20,14 +20,9 @@ extern "C" {
 
 #include "utils.h"
 
-#define DEBUG 1
-#ifdef DEBUG
-#define shellog_dbg(format, arg...) DBG_PRINT_FUNC(format, "DBG", ##arg)
-#else
-#define  shellog_dbg(x...)
-#endif
-
-#define shellog_err(format, arg...) DBG_PRINT_FUNC(format, "ERR", ##arg)
+#define CLIENT_DBG 1
+#define SERVER_DBG 1
+#define PARSER_DBG 1
 
 #define DBG_OUT printf
 #define DBG_PRINT_FUNC(format, mod, arg...)      \
@@ -59,6 +54,8 @@ const char *secret = "\xBA\x36\xF7\x2A\x50\x8E\x5B\xD3" \
 #define MIN_TRANSFER_PKT_SZ (RC4_SZ + SESSION_SZ + SHA1_SZ + EOF_DATA_SZ)
 #define MAX_TRANSFER_PKT_SZ (BUF_SZ + MIN_TRANSFER_PKT_SZ)
 #define MAX_LOG_PKT_SZ (MAX_TRANSFER_PKT_SZ + IP_SZ + LENGTH_SZ)
+
+#define LOG_OUTPUT 1
 
 typedef struct {
     int server_fd;

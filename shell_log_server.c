@@ -11,10 +11,17 @@
 #include <time.h>
 #include <errno.h>
 
-#include "configuration.h"
+#include "config.h"
 #include "rc4.h"
 #include "sha1.h"
 
+#if SERVER_DBG
+#define server_dbg(format, arg...) DBG_PRINT_FUNC(format, "SERVER_DBG", ##arg)
+#else
+#define  server_dbg(x...)
+#endif
+
+#define server_err(format, arg...) DBG_PRINT_FUNC(format, "SERVER_ERR", ##arg)
 
 void create_log(int *fd_log) {
     char logfile[64];
@@ -53,7 +60,7 @@ int main(void) {
     /* start the UDP listening server */
 
     if ((server_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
-	shellog_err("Socket creation failed: %d\n", errno);
+	server_err("Socket creation failed: %d\n", errno);
 	exit(1);
     }
 
@@ -61,7 +68,7 @@ int main(void) {
 
     if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR,
 	    (void *) &n, sizeof ( n)) < 0) {
-	shellog_err("Set socket options failed: %d\n", errno);
+	server_err("Set socket options failed: %d\n", errno);
 	exit(1);
     }
 
@@ -71,7 +78,7 @@ int main(void) {
 
     if (bind(server_socket, (struct sockaddr *) &server_addr,
 	    sizeof ( server_addr)) < 0) {
-	shellog_err("Bind socket failed: %d\n", errno);
+	server_err("Bind socket failed: %d\n", errno);
 	exit(1);
     }
 
@@ -85,26 +92,26 @@ int main(void) {
 
 	if ((len = recvfrom(server_socket, &logbuf[IP_SZ + LENGTH_SZ], BUF_SZ, 0,
 		(struct sockaddr *) &client_addr,
-		&fromlen)) < (SESSION_SZ + RC4_SZ + SHA1_SZ + 1)) {
+		&fromlen)) < MIN_TRANSFER_PKT_SZ) {
 	    //	    sleep(1);
 	    continue;
 	}
 
-	shellog_dbg("Received packet: %d\n", len);
+	server_dbg("Received packet: %d\n", len);
 
 	sha1_starts(&sha1);
 	sha1_update(&sha1, logbuf + IP_SZ + LENGTH_SZ + RC4_SZ, len - RC4_SZ - SHA1_SZ);
 	sha1_finish(&sha1, sha1sum);
 
 	if (memcmp(logbuf + IP_SZ + LENGTH_SZ + len - SHA1_SZ, sha1sum, SHA1_SZ) != 0) {
-	    shellog_err("SHA-1 checksum verification failed\n");
+	    server_err("SHA-1 checksum verification failed\n");
 	    continue;
 	}
 
 	memcpy(logbuf, &client_addr.sin_addr.s_addr, IP_SZ);
 	memcpy(&logbuf[IP_SZ], &len, LENGTH_SZ);
 
-	shellog_dbg("From : %d.%d.%d.%d\n",
+	server_dbg("From : %d.%d.%d.%d\n",
 		(client_addr.sin_addr.s_addr) & 0xFF,
 		(client_addr.sin_addr.s_addr >> 8) & 0xFF,
 		(client_addr.sin_addr.s_addr >> 16) & 0xFF,
