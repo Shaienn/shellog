@@ -22,7 +22,6 @@
 #include "rc4.h"
 #include "sha1.h"
 
-
 #if CLIENT_DBG
 #define client_dbg(format, arg...) DBG_PRINT_FUNC(format, "CLIENT_DBG", ##arg)
 #else
@@ -279,8 +278,7 @@ int main(int argc, char *argv[]) {
     }
     client_dbg("Slave device is %s\n", slave);
 
-    ret = setup_terminal(tty, &tm);
-    if (ret) {
+    if (setup_terminal(tty, &tm)) {
 	client_err("Setup terminal failed\n");
 	goto exec_real_shell;
     }
