@@ -359,7 +359,7 @@ int main(int argc, char *argv[]) {
 			break;
 		    }
 
-		    sd.dir = 0;
+		    sd.dir = INPUT_DIR;
 		    sd.len = n;
 		    encrypt_and_send(&cd, &sd);
 
@@ -386,7 +386,7 @@ int main(int argc, char *argv[]) {
 		    }
 
 #if LOG_OUTPUT 
-		    sd.dir = 1;
+		    sd.dir = OUTPUT_DIR;
 		    sd.len = n;
 		    encrypt_and_send(&cd, &sd);
 #endif

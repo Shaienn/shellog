@@ -54,6 +54,8 @@ const char *secret = "\xBA\x36\xF7\x2A\x50\x8E\x5B\xD3" \
 #define SHA1_SZ 20
 #define IP_SZ 4
 #define LENGTH_SZ 2
+#define INPUT_DIR 0
+#define OUTPUT_DIR 1
 
 #define MIN_TRANSFER_PKT_SZ (RC4_SZ + SESSION_SZ + SHA1_SZ + EOF_DATA_SZ)
 #define MAX_TRANSFER_PKT_SZ (BUF_SZ + MIN_TRANSFER_PKT_SZ)
