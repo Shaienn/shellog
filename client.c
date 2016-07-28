@@ -259,40 +259,40 @@ int main(int argc, char *argv[]) {
     /* reconstruct the original shell location */
 
     if (create_real_shell_run_cmd(argv, real_shell, SZARR(real_shell))) {
-	client_err("Create real shell command failed\n");
+	client_err("Create real shell command failed\r\n");
 	goto exec_real_shell;
     }
 
-    client_dbg("Start as : %s\n", real_shell);
+    client_dbg("Start as : %s\r\n", real_shell);
 
     if (isatty(0) == 0 ||
 	    isatty(1) == 0 ||
 	    isatty(2) == 0 ||
 	    getlogin() == NULL) {
 
-	client_err("Skipping non interactive shell session\n");
+	client_err("Skipping non interactive shell session\r\n");
 	goto exec_real_shell;
     }
 
     if (create_server_connection(&cd)) {
-	client_err("Create server connection failed\n");
+	client_err("Create server connection failed\r\n");
 	goto exec_real_shell;
     }
 
     /* create a pseudo-terminal */
 
     if (openpty(&pty, &tty, NULL, NULL, NULL) < 0) {
-	client_err("Open pseudo terminal failed: %d\n", errno);
+	client_err("Open pseudo terminal failed: %d\r\n", errno);
 	goto exec_real_shell;
     }
 
     if (ttyname(tty) == NULL) {
-	client_err("Get TTY name failed: %d\n", errno);
+	client_err("Get TTY name failed: %d\r\n", errno);
 	goto exec_real_shell;
     }
 
     if (setup_terminal(tty, &tty_tm)) {
-	client_err("Setup terminal failed\n");
+	client_err("Setup terminal failed\r\n");
 	goto exec_real_shell;
     }
 
@@ -305,7 +305,7 @@ int main(int argc, char *argv[]) {
     switch ((sd.pid = fork())) {
 	case(-1):
 	    reset_terminal(&tty_tm);
-	    client_err("Fork process failed: %d\n", errno);
+	    client_err("Fork process failed: %d\r\n", errno);
 	    goto exec_real_shell;
 	    break;
 	case(0):
@@ -313,7 +313,7 @@ int main(int argc, char *argv[]) {
 	    /* Child : real shell */
 
 	    if (login_tty(tty)) {
-		client_err("Make tty be the controlling terminal failed: %d\n", errno);
+		client_err("Make tty be the controlling terminal failed: %d\r\n", errno);
 		goto exec_real_shell;
 	    }
 
@@ -371,24 +371,43 @@ int main(int argc, char *argv[]) {
 		    struct termios prev_pty_tm; /* current PTY terminal settings */
 		    if (memcmp(&pty_tm, &prev_pty_tm, sizeof (struct termios))) {
 
-			printf("\r\n");
-			__print_output(&prev_pty_tm.c_iflag, sizeof (prev_pty_tm.c_iflag));
-			__print_output(&prev_pty_tm.c_lflag, sizeof (prev_pty_tm.c_lflag));
-			printf("%X %X\r\n", prev_pty_tm.c_iflag, prev_pty_tm.c_lflag);
-			printf("\r\n");
-			__print_output(&pty_tm.c_iflag, sizeof (pty_tm.c_iflag));
-			__print_output(&pty_tm.c_lflag, sizeof (pty_tm.c_lflag));
-			printf("%X %X\r\n", pty_tm.c_iflag, pty_tm.c_lflag);
+			//			printf("\r\n");
+			//			__print_output(&prev_pty_tm.c_iflag, sizeof (prev_pty_tm.c_iflag));
+			//			__print_output(&prev_pty_tm.c_lflag, sizeof (prev_pty_tm.c_lflag));
+			//			printf("%X %X\r\n", prev_pty_tm.c_iflag, prev_pty_tm.c_lflag);
+			//			printf("\r\n");
+			//			__print_output(&pty_tm.c_iflag, sizeof (pty_tm.c_iflag));
+			//			__print_output(&pty_tm.c_lflag, sizeof (pty_tm.c_lflag));
+			//			printf("%X %X\r\n", pty_tm.c_iflag, pty_tm.c_lflag);
+			//
+			//			printf("%X %X\r\n", pty_tm.c_iflag & INLCR, pty_tm.c_lflag & ICANON);
 
-			printf("%X %X\r\n", pty_tm.c_iflag & INLCR, pty_tm.c_lflag & ICANON);
+			printf("IGNBRK %d\r\n", pty_tm.c_iflag & IGNBRK);
+			printf("BRKINT %d\r\n", pty_tm.c_iflag & BRKINT);
+			printf("IGNPAR %d\r\n", pty_tm.c_iflag & IGNPAR);
+			printf("PARMRK %d\r\n", pty_tm.c_iflag & PARMRK);
+			printf("INPCK %d\r\n", pty_tm.c_iflag & INPCK);
+			printf("ISTRIP %d\r\n", pty_tm.c_iflag & ISTRIP);
+			printf("INLCR %d\r\n", pty_tm.c_iflag & INLCR);
+			printf("IGNCR %d\r\n", pty_tm.c_iflag & IGNCR);
+			printf("ICRNL %d\r\n", pty_tm.c_iflag & ICRNL);
+			printf("IUCLC %d\r\n", pty_tm.c_iflag & IUCLC);
+			printf("IXON %d\r\n", pty_tm.c_iflag & IXON);
+			printf("IXANY %d\r\n", pty_tm.c_iflag & IXANY);
+			printf("IXOFF %d\r\n", pty_tm.c_iflag & IXOFF);
+			printf("IMAXBEL %d\r\n", pty_tm.c_iflag & IMAXBEL);
+			printf("IUTF8 %d\r\n", pty_tm.c_iflag & IUTF8);
+
 			memcpy(&prev_pty_tm, &pty_tm, sizeof (struct termios));
 		    }
 #endif
 
 
-		    if (((pty_tm.c_iflag & INLCR) == 0) && (pty_tm.c_lflag & ICANON)) {
+		    if ((pty_tm.c_iflag & ICRNL) && (pty_tm.c_lflag & ICANON)) {
 
 			/* password mode */
+
+			client_dbg("Password mode\r\n");
 
 		    } else {
 
