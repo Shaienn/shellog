@@ -13,11 +13,11 @@
 
 void __print_output(const unsigned char *str, size_t size) {
     uint32_t i = 0;
-    printf("  Dump of string with strlen %u and %lu allocated bytes:\n",
+    printf("  Dump of string with strlen %u and %lu allocated bytes:\r\n",
 	    (unsigned int) strlen(str), (unsigned long) size);
-    printf("    Ascii:\n"
-	    "    \"%s\"\n", str);
-    printf("    Hex dump of total string storage, size is %u:\n", size);
+    printf("    Ascii:\r\n"
+	    "    \"%s\"\r\n", str);
+    printf("    Hex dump of total string storage, size is %u:\r\n", size);
     for (i = 0; i < size; i++) {
 
 	if (i % 8 == 0)
@@ -28,9 +28,9 @@ void __print_output(const unsigned char *str, size_t size) {
 		(isgraph(str[i]) || str[i] == ' ') ? str[i] : '?');
 
 	if ((i + 1) % 8 == 0)
-	    printf("\n");
+	    printf("\r\n");
     }
-    printf("\n");
+    printf("\r\n");
 }
 
 void pretty_time(char *str) {

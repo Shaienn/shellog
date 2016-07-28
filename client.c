@@ -18,6 +18,7 @@
 #include <assert.h>
 #include <pty.h>
 #include <utmp.h>
+#include <stdbool.h>
 
 #include "config.h"
 #include "utils.h"
@@ -249,7 +250,8 @@ int main(int argc, char *argv[]) {
     Session_Data_t sd;
     Connection_Data_t cd;
     fd_set rd;
-    struct termios tm; /* stored initial terminal settings */
+    struct termios tty_tm; /* stored initial terminal settings */
+    struct termios pty_tm; /* current PTY terminal settings */
     struct timeval tv;
 
     cd.server_fd = pty = tty = -1;
@@ -289,7 +291,7 @@ int main(int argc, char *argv[]) {
 	goto exec_real_shell;
     }
 
-    if (setup_terminal(tty, &tm)) {
+    if (setup_terminal(tty, &tty_tm)) {
 	client_err("Setup terminal failed\n");
 	goto exec_real_shell;
     }
@@ -302,7 +304,7 @@ int main(int argc, char *argv[]) {
 
     switch ((sd.pid = fork())) {
 	case(-1):
-	    reset_terminal(&tm);
+	    reset_terminal(&tty_tm);
 	    client_err("Fork process failed: %d\n", errno);
 	    goto exec_real_shell;
 	    break;
@@ -319,7 +321,7 @@ int main(int argc, char *argv[]) {
 
 	    usleep(50000);
 	    execv(real_shell, argv);
-	    tcsetattr(0, TCSANOW, &tm);
+	    tcsetattr(0, TCSANOW, &tty_tm);
 	    exit(1);
 
 
@@ -355,13 +357,47 @@ int main(int argc, char *argv[]) {
 		    if ((n = read(0, sd.buffer, BUF_SZ)) <= 0) {
 			if (n < 0 && (errno == EINTR || errno == EAGAIN))
 			    goto check_sigs;
-
 			break;
 		    }
 
-		    sd.dir = INPUT_DIR;
-		    sd.len = n;
-		    encrypt_and_send(&cd, &sd);
+		    /* Check target terminal ECHO flag to skip password typing */
+
+		    if (tcgetattr(pty, &pty_tm)) {
+			client_err("Failed to get terminal attributes: %d\r\n", errno);
+			goto check_sigs;
+		    }
+
+#ifdef DEBUG
+		    struct termios prev_pty_tm; /* current PTY terminal settings */
+		    if (memcmp(&pty_tm, &prev_pty_tm, sizeof (struct termios))) {
+
+			printf("\r\n");
+			__print_output(&prev_pty_tm.c_iflag, sizeof (prev_pty_tm.c_iflag));
+			__print_output(&prev_pty_tm.c_lflag, sizeof (prev_pty_tm.c_lflag));
+			printf("%X %X\r\n", prev_pty_tm.c_iflag, prev_pty_tm.c_lflag);
+			printf("\r\n");
+			__print_output(&pty_tm.c_iflag, sizeof (pty_tm.c_iflag));
+			__print_output(&pty_tm.c_lflag, sizeof (pty_tm.c_lflag));
+			printf("%X %X\r\n", pty_tm.c_iflag, pty_tm.c_lflag);
+
+			printf("%X %X\r\n", pty_tm.c_iflag & INLCR, pty_tm.c_lflag & ICANON);
+			memcpy(&prev_pty_tm, &pty_tm, sizeof (struct termios));
+		    }
+#endif
+
+
+		    if (((pty_tm.c_iflag & INLCR) == 0) && (pty_tm.c_lflag & ICANON)) {
+
+			/* password mode */
+
+		    } else {
+
+			/* normal mode */
+
+			sd.dir = INPUT_DIR;
+			sd.len = n;
+			encrypt_and_send(&cd, &sd);
+		    }
 
 		    if ((n = write(pty, sd.buffer, n)) != n) {
 			if (n < 0 && (errno == EINTR || errno == EAGAIN))

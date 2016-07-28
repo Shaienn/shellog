@@ -1,6 +1,6 @@
 
-CLIENT_OBJ=rc4.c sha1.c utils.c shell_log_client.c
-SERVER_OBJ=rc4.c sha1.c utils.c shell_log_server.c
+CLIENT_OBJ=rc4.c sha1.c utils.c client.c
+SERVER_OBJ=rc4.c sha1.c utils.c server.c
 PARSER_OBJ=rc4.c sha1.c utils.c parser.c
 
 all:
