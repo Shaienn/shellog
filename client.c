@@ -18,7 +18,7 @@
 #include <assert.h>
 #include <pty.h>
 #include <utmp.h>
-#include <stdbool.h>
+#include <bits/fcntl-linux.h>
 
 #include "config.h"
 #include "utils.h"
@@ -51,7 +51,7 @@ static int setup_terminal(int tty, struct termios *tm) {
 
     ret = tcgetattr(0, tm);
     if (ret) {
-	client_err("Failed to get terminal attributes: %d\n", errno);
+	client_err("Failed to get terminal attributes: %d\r\n", errno);
 	return -1;
     }
 
@@ -82,7 +82,7 @@ static int create_server_connection(Connection_Data_t *cd) {
     assert(cd != NULL);
 
     if ((cd->server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
-	client_err("Failed to open socket: %d\n", errno);
+	client_err("Failed to open socket: %d\r\n", errno);
 	return -1;
     }
 
@@ -106,11 +106,9 @@ static int create_real_shell_run_cmd(char *argv[],
 
     if ((last_slash = strrchr(argv[0], '/')) == NULL) {
 	last_slash = argv[0];
-    } else {
-	last_slash++;
     }
 
-    client_dbg("CMD: %s\n", last_slash);
+    client_dbg("CMD: %s\r\n", last_slash);
 
     if (n > cmd_str_max_length - cmd_str_index)
 	goto not_enough_buffer_length;
@@ -122,7 +120,7 @@ static int create_real_shell_run_cmd(char *argv[],
 	cmd_str[cmd_str_index++] = '/';
     }
 
-    n = strlen(last_slash);
+    n = (int) (last_slash - argv[0]);
 
     if (n > cmd_str_max_length - cmd_str_index)
 	goto not_enough_buffer_length;
@@ -137,7 +135,7 @@ static int create_real_shell_run_cmd(char *argv[],
 
     return 0;
 not_enough_buffer_length:
-    client_err("Not enough buffer length for real shell command [need: %d, available: %d]\n",
+    client_err("Not enough buffer length for real shell command [need: %d, available: %d]\r\n",
 	    n, cmd_str_max_length - cmd_str_index);
     return -1;
 }
@@ -150,9 +148,13 @@ static int encrypt_and_send(Connection_Data_t *cd, Session_Data_t * sd) {
     unsigned char msg[MAX_TRANSFER_PKT_SZ];
     int rc4_offset = 0;
     int msg_index = 0;
+    struct timeval tv;
 
     assert(cd != NULL);
     assert(sd != NULL);
+
+    gettimeofday(&tv, NULL);
+    sd->time = tv.tv_sec;
 
     srand(time(NULL));
 
@@ -246,13 +248,18 @@ static int encrypt_and_send(Connection_Data_t *cd, Session_Data_t * sd) {
 int main(int argc, char *argv[]) {
 
     char real_shell[256];
+    char rx_buffer[MAX_BUF_SZ];
     int pty = 0, tty = 0;
     Session_Data_t sd;
     Connection_Data_t cd;
     fd_set rd;
     struct termios tty_tm; /* stored initial terminal settings */
     struct termios pty_tm; /* current PTY terminal settings */
-    struct timeval tv;
+    size_t tx_buffer_size = 0;
+    uint32_t rx_read_index = 0;
+    size_t bytes_to_send = 0;
+    int i = 0;
+    char *termtype = getenv("TERM");
 
     cd.server_fd = pty = tty = -1;
 
@@ -264,6 +271,7 @@ int main(int argc, char *argv[]) {
     }
 
     client_dbg("Start as : %s\r\n", real_shell);
+    client_dbg("Terminal type is : %s\r\n", termtype);
 
     if (isatty(0) == 0 ||
 	    isatty(1) == 0 ||
@@ -281,10 +289,13 @@ int main(int argc, char *argv[]) {
 
     /* create a pseudo-terminal */
 
-    if (openpty(&pty, &tty, NULL, NULL, NULL) < 0) {
-	client_err("Open pseudo terminal failed: %d\r\n", errno);
-	goto exec_real_shell;
-    }
+    //    if (openpty(&pty, &tty, NULL, NULL, NULL) < 0) {
+    //	client_err("Open pseudo terminal failed: %d\r\n", errno);
+    //	goto exec_real_shell;
+    //    }
+
+    tty = open("/dev/vcs1", O_RDWR);
+    pty = open("/dev/console", O_RDWR);
 
     if (ttyname(tty) == NULL) {
 	client_err("Get TTY name failed: %d\r\n", errno);
@@ -349,18 +360,26 @@ int main(int argc, char *argv[]) {
 
 		if (FD_ISSET(0, &rd)) {
 
-		    gettimeofday(&tv, NULL);
-		    sd.time = tv.tv_sec;
-
 		    /* transfer the data from stdin to pty */
 
-		    if ((n = read(0, sd.buffer, BUF_SZ)) <= 0) {
+		    //		    if ((n = read(0, &sd.buffer[tx_buffer_size],
+		    //			    MAX_BUF_SZ - tx_buffer_size)) <= 0) {
+		    //			if (n < 0 && (errno == EINTR || errno == EAGAIN))
+		    //			    goto check_sigs;
+		    //			break;
+		    //		    }
+
+		    if ((n = read(0, rx_buffer, MAX_BUF_SZ)) <= 0) {
 			if (n < 0 && (errno == EINTR || errno == EAGAIN))
 			    goto check_sigs;
 			break;
 		    }
 
-		    /* Check target terminal ECHO flag to skip password typing */
+		    /* We do not want to save any passwords into log file. 
+		     * Password typing is hidden due to change of terminal 
+		     * settings. Here we check terminal settings and do not 
+		     * send symbols to server until terminal is in password 
+		     * mode */
 
 		    if (tcgetattr(pty, &pty_tm)) {
 			client_err("Failed to get terminal attributes: %d\r\n", errno);
@@ -370,17 +389,6 @@ int main(int argc, char *argv[]) {
 #ifdef DEBUG
 		    struct termios prev_pty_tm; /* current PTY terminal settings */
 		    if (memcmp(&pty_tm, &prev_pty_tm, sizeof (struct termios))) {
-
-			//			printf("\r\n");
-			//			__print_output(&prev_pty_tm.c_iflag, sizeof (prev_pty_tm.c_iflag));
-			//			__print_output(&prev_pty_tm.c_lflag, sizeof (prev_pty_tm.c_lflag));
-			//			printf("%X %X\r\n", prev_pty_tm.c_iflag, prev_pty_tm.c_lflag);
-			//			printf("\r\n");
-			//			__print_output(&pty_tm.c_iflag, sizeof (pty_tm.c_iflag));
-			//			__print_output(&pty_tm.c_lflag, sizeof (pty_tm.c_lflag));
-			//			printf("%X %X\r\n", pty_tm.c_iflag, pty_tm.c_lflag);
-			//
-			//			printf("%X %X\r\n", pty_tm.c_iflag & INLCR, pty_tm.c_lflag & ICANON);
 
 			printf("IGNBRK %d\r\n", pty_tm.c_iflag & IGNBRK);
 			printf("BRKINT %d\r\n", pty_tm.c_iflag & BRKINT);
@@ -402,12 +410,9 @@ int main(int argc, char *argv[]) {
 		    }
 #endif
 
-
 		    if ((pty_tm.c_iflag & ICRNL) && (pty_tm.c_lflag & ICANON)) {
 
 			/* password mode */
-
-			client_dbg("Password mode\r\n");
 
 		    } else {
 
@@ -415,10 +420,12 @@ int main(int argc, char *argv[]) {
 
 			sd.dir = INPUT_DIR;
 			sd.len = n;
+			memcpy(sd.buffer, rx_buffer, n);
 			encrypt_and_send(&cd, &sd);
 		    }
 
-		    if ((n = write(pty, sd.buffer, n)) != n) {
+
+		    if ((n = write(pty, rx_buffer, n)) != n) {
 			if (n < 0 && (errno == EINTR || errno == EAGAIN))
 			    goto check_sigs;
 
@@ -428,12 +435,9 @@ int main(int argc, char *argv[]) {
 
 		if (FD_ISSET(pty, &rd)) {
 
-		    gettimeofday(&tv, NULL);
-		    sd.time = tv.tv_sec;
-
 		    /* transfer the data from pty to stdout */
 
-		    if ((n = read(pty, sd.buffer, BUF_SZ)) <= 0) {
+		    if ((n = read(pty, rx_buffer, MAX_BUF_SZ)) <= 0) {
 			if (n < 0 && (errno == EINTR || errno == EAGAIN))
 			    goto check_sigs;
 
@@ -445,7 +449,7 @@ int main(int argc, char *argv[]) {
 		    sd.len = n;
 		    encrypt_and_send(&cd, &sd);
 #endif
-		    if ((n = write(1, sd.buffer, n)) != n) {
+		    if ((n = write(1, rx_buffer, n)) != n) {
 			if (n < 0 && (errno == EINTR || errno == EAGAIN))
 			    goto check_sigs;
 

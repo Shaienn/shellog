@@ -39,7 +39,7 @@ void create_log(int *fd_log) {
 	    S_IRUSR | S_IWUSR);
 
     if (*fd_log < 0) {
-	perror("open");
+	server_err("Log file opening failed: %d\r\n", errno);
 	exit(1);
     }
 }
@@ -60,7 +60,7 @@ int main(void) {
     /* start the UDP listening server */
 
     if ((server_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
-	server_err("Socket creation failed: %d\n", errno);
+	server_err("Socket creation failed: %d\r\n", errno);
 	exit(1);
     }
 
@@ -68,7 +68,7 @@ int main(void) {
 
     if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR,
 	    (void *) &n, sizeof ( n)) < 0) {
-	server_err("Set socket options failed: %d\n", errno);
+	server_err("Set socket options failed: %d\r\n", errno);
 	exit(1);
     }
 
@@ -78,7 +78,7 @@ int main(void) {
 
     if (bind(server_socket, (struct sockaddr *) &server_addr,
 	    sizeof ( server_addr)) < 0) {
-	server_err("Bind socket failed: %d\n", errno);
+	server_err("Bind socket failed: %d\r\n", errno);
 	exit(1);
     }
 
@@ -90,28 +90,28 @@ int main(void) {
     while (1) {
 	fromlen = sizeof (client_addr);
 
-	if ((len = recvfrom(server_socket, &logbuf[IP_SZ + LENGTH_SZ], BUF_SZ, 0,
+	if ((len = recvfrom(server_socket, &logbuf[IP_SZ + LENGTH_SZ], MAX_BUF_SZ, 0,
 		(struct sockaddr *) &client_addr,
 		&fromlen)) < MIN_TRANSFER_PKT_SZ) {
 	    //	    sleep(1);
 	    continue;
 	}
 
-	server_dbg("Received packet: %d\n", len);
+	server_dbg("Received packet: %d\r\n", len);
 
 	sha1_starts(&sha1);
 	sha1_update(&sha1, logbuf + IP_SZ + LENGTH_SZ + RC4_SZ, len - RC4_SZ - SHA1_SZ);
 	sha1_finish(&sha1, sha1sum);
 
 	if (memcmp(logbuf + IP_SZ + LENGTH_SZ + len - SHA1_SZ, sha1sum, SHA1_SZ) != 0) {
-	    server_err("SHA-1 checksum verification failed\n");
+	    server_err("SHA-1 checksum verification failed\r\n");
 	    continue;
 	}
 
 	memcpy(logbuf, &client_addr.sin_addr.s_addr, IP_SZ);
 	memcpy(&logbuf[IP_SZ], &len, LENGTH_SZ);
 
-	server_dbg("From : %d.%d.%d.%d\n",
+	server_dbg("From : %d.%d.%d.%d\r\n",
 		(client_addr.sin_addr.s_addr) & 0xFF,
 		(client_addr.sin_addr.s_addr >> 8) & 0xFF,
 		(client_addr.sin_addr.s_addr >> 16) & 0xFF,

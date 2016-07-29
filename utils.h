@@ -1,7 +1,6 @@
 #ifndef _UTILS_H
 #define _UTILS_H
 
-#define RETURN(s) {return_status = s; goto __return;}
 #define SZARR(a) (sizeof(a)/sizeof((a)[0]))
 #define _FREE(ptr)                                     \
     do {                                               \
