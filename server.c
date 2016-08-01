@@ -39,7 +39,7 @@ void create_log(int *fd_log) {
 	    S_IRUSR | S_IWUSR);
 
     if (*fd_log < 0) {
-	server_err("Log file opening failed: %d\r\n", errno);
+	perror("open");
 	exit(1);
     }
 }
@@ -90,7 +90,7 @@ int main(void) {
     while (1) {
 	fromlen = sizeof (client_addr);
 
-	if ((len = recvfrom(server_socket, &logbuf[IP_SZ + LENGTH_SZ], MAX_BUF_SZ, 0,
+	if ((len = recvfrom(server_socket, &logbuf[IP_SZ + LENGTH_SZ], BUF_SZ, 0,
 		(struct sockaddr *) &client_addr,
 		&fromlen)) < MIN_TRANSFER_PKT_SZ) {
 	    //	    sleep(1);

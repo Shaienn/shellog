@@ -22,9 +22,9 @@ pids
 logs
 results
 
-npm-debug.log
-
-app.nw
+client
+server
+parser
 
 .sass-cache
 *-ck.js
